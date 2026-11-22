@@ -1,2 +1,6 @@
 import { app } from './app.js';
-app.listen(3000, 'localhost');
+import { config } from './config/index.js';
+
+app.listen(config.port, 'localhost', () => {
+  console.log(`Server listening on port ${config.port} (${config.env})`);
+});
