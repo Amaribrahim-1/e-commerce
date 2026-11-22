@@ -89,6 +89,15 @@
 - Env loading: Node's built-in `--env-file-if-exists=.env` in the npm scripts, not `dotenv`. Reasons: no dependency, stable in Node 24, real env vars take precedence, a missing file is fine in production. Scripts outside npm scripts must pass the same flag.
 - All config is read and validated in `src/config/index.js` (Zod) and exported as a frozen object. `process.env` is read nowhere else.
 
+- `MONGODB_URI` is validated with `z.string().regex(...)` on the scheme (`mongodb://` or `mongodb+srv://`), not `z.url()`. Reason: `z.url()` uses the WHATWG URL parser, which rejects the multi-host "legacy" Atlas string. The driver validates the rest on connect.
+
+### Database connection and process lifecycle (P1-T04)
+- Startup order: `mongoose.connect()` first, then `app.listen()`. A failed connection logs only the error name and message (never the error object or the URI) and exits with code 1.
+- Shutdown on `SIGINT`/`SIGTERM`: stop accepting requests (`server.close`), `mongoose.disconnect()`, exit 0. A 10 s timer forces exit 1 if something hangs. Repeated signals are ignored.
+- `unhandledRejection` and `uncaughtException`: log, run the same graceful shutdown, exit 1 (process state is unknown, so do not continue). A process manager restarts it in production.
+- `serverSelectionTimeoutMS` is left at the driver default (30 s): Atlas is a replica set, and the docs advise against lowering it for replica sets. A wrong password fails fast anyway (auth error).
+- `/health` does not report the DB state for now (optional in the task).
+
 ## Open (the learner decides during `/plan-task`)
 - Variant modeling: embedded in the product or a separate collection.
 - API response and error shape.

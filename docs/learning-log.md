@@ -40,3 +40,17 @@ One entry per task that reached "Ready" in `/review-task`: date, task ID, the mo
 
 **Concepts learned**
 - Fail-fast configuration, 12-factor config, Zod `safeParse` / `issues` / `coerce` / `default`, `--env-file` vs `--env-file-if-exists` vs `dotenv`, why secrets must never be echoed in error messages.
+
+## 2026-11-23 - P1-T04 Database connection (Atlas)
+
+**Most important feedback**
+- Connect first, then listen. The first version created the HTTP server inside `.then()` and exported the promise as `server`; nothing could close the server later. Keep the `http.Server` returned by `app.listen()` in a variable so shutdown can call `close()`.
+- `z.url()` rejects the multi-host "legacy" Atlas string (`mongodb://host1,host2,host3/...`) because it uses the WHATWG URL parser. The scheme is now checked with `z.string().regex()`; the driver validates the rest.
+- Never log the whole connection error object: it can contain the URI and the password. Log only `name` and `message`. Verified with a wrong password: one readable line, exit code 1.
+- Graceful shutdown on `SIGINT`/`SIGTERM`: `server.close()` (stop accepting, finish in-flight), `mongoose.disconnect()`, exit. Guard against running twice and add a forced-exit timeout. Bug found while testing: `close()` throws "Server is not running" if the server never started listening, so check `httpServer.listening` first or the DB is never closed.
+- `unhandledRejection` and `uncaughtException`: log, shut down gracefully, exit 1, because the state is unknown after an uncaught error.
+- Handle the HTTP server `error` event (for example `EADDRINUSE`); otherwise it is an uncaught exception.
+- `serverSelectionTimeoutMS` defaults to 30 s and applies to the initial connect too; the docs advise against lowering it on a replica set.
+
+**Concepts learned**
+- Mongoose connection events (`connected`, `disconnected`, `reconnected`, `error`), `mongoose.disconnect()`, server selection timeout, process signals, exit codes, why Atlas is a replica set and transactions need one, WHATWG URL vs MongoDB connection strings.
