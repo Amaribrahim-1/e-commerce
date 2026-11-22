@@ -23,7 +23,7 @@ These apply to every task, so the task files do not repeat them.
 | | ID | Task | Depends on |
 |---|---|---|---|
 | [x] | P1-T01 | Project setup and folder structure | none |
-| [ ] | P1-T02 | Linting and formatting | P1-T01 |
+| [x] | P1-T02 | Linting and formatting | P1-T01 |
 | [ ] | P1-T03 | Configuration module | P1-T01 |
 | [ ] | P1-T04 | Database connection (Atlas) | P1-T03 |
 | [ ] | P1-T05 | Error handling and response shape | P1-T01 |

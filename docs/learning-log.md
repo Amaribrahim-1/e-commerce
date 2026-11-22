@@ -16,3 +16,14 @@ One entry per task that reached "Ready" in `/review-task`: date, task ID, the mo
 
 **Concepts learned**
 - ESM (`"type": "module"`), modular monolith vs layered-by-type, app/server split, gitignore pattern matching, `engines`, nodemon `ext` / `ignore`.
+
+## 2026-11-23 - P1-T02 Linting and formatting
+
+**Most important feedback**
+- Formatting rules belong to Prettier and correctness rules to ESLint; `eslint-config-prettier` goes last in the flat config so it can switch off conflicting rules.
+- Scope Prettier with `.prettierignore` before the first `format` run, otherwise it rewrites docs and tooling files too.
+- The unused `next` argument in the health handler was flagged by `no-unused-vars` and removed; Express 5 does not need it there.
+- Verified acceptance criteria: lint passes, an unused variable is reported, a mis-formatted file is fixed by `format`.
+
+**Concepts learned**
+- ESLint flat config (`eslint.config.js`), `globals.node`, `sourceType: "module"`, Prettier config and ignore files, format-on-save and ESLint fix-on-save in VS Code, `endOfLine: "auto"` on Windows.
