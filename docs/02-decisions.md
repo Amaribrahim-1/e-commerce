@@ -85,6 +85,10 @@
 - Phase 8 (optional extras) starts only after Phase 6 is "Ready".
 - Items marked "choose and document" in the task files are decided by the learner during `/plan-task` and recorded here.
 
+### Configuration (P1-T03)
+- Env loading: Node's built-in `--env-file-if-exists=.env` in the npm scripts, not `dotenv`. Reasons: no dependency, stable in Node 24, real env vars take precedence, a missing file is fine in production. Scripts outside npm scripts must pass the same flag.
+- All config is read and validated in `src/config/index.js` (Zod) and exported as a frozen object. `process.env` is read nowhere else.
+
 ## Open (the learner decides during `/plan-task`)
 - Variant modeling: embedded in the product or a separate collection.
 - API response and error shape.
