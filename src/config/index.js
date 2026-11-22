@@ -8,7 +8,15 @@ const envSchema = z.object({
     .enum(['development', 'production', 'test'])
     .default('development'),
   PORT: z.coerce.number().int().min(1).max(65535),
-  MONGODB_URI: z.url({ protocol: /^mongodb(\+srv)?$/ }),
+  // Not z.url(): it uses the WHATWG URL parser, which rejects the multi-host
+  // "legacy" Atlas string (mongodb://host1:27017,host2:27017,.../db).
+  // Only the scheme is checked here; the driver validates the rest on connect.
+  MONGODB_URI: z
+    .string()
+    .regex(
+      /^mongodb(\+srv)?:\/\/\S+$/,
+      'must be a mongodb:// or mongodb+srv:// connection string',
+    ),
 });
 
 const parsed = envSchema.safeParse(process.env);
