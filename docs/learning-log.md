@@ -54,3 +54,17 @@ One entry per task that reached "Ready" in `/review-task`: date, task ID, the mo
 
 **Concepts learned**
 - Mongoose connection events (`connected`, `disconnected`, `reconnected`, `error`), `mongoose.disconnect()`, server selection timeout, process signals, exit codes, why Atlas is a replica set and transactions need one, WHATWG URL vs MongoDB connection strings.
+
+## 2026-11-23 - P1-T05 Error handling and response shape
+
+**Most important feedback**
+- Express recognises an error handler by its **4 parameters** `(err, req, res, next)`. With 3 it is treated as a normal middleware and never receives errors. The earlier `no-unused-vars` fix removed `next` for the health handler, which is right there but wrong for an error handler: keep `next` (here it is used for the `res.headersSent` case, so no lint disable is needed).
+- `express.json()` must be registered before the routes, otherwise a broken JSON body can never be reported. Its errors come from body-parser, not from your code: they carry `status`, `type` (`entity.parse.failed`) and no `isOperational`, so they must be translated or they become a generic 500.
+- Translation of library errors (Mongoose cast/validation, duplicate key `11000` -> `409`, body-parser) belongs in every environment. The environment only decides how much detail is sent (`stack` in development, never in production).
+- Do not hard-code a field name when reading `err.keyValue` (it was `name`); read the key from the object, and guard in case it is missing.
+- Do not mutate the incoming error, and do not assume a thrown value is an `Error` (`throw "x"` would crash the handler). Normalise first, then translate.
+- Keep out-of-scope code out of a task (JWT handlers belong to Phase 2). Name files after what they contain (`AppError.js`, not `handleOperationalError.js`).
+- The response shape is a contract: it is recorded in `docs/02-decisions.md` with room reserved for `details` (P1-T06) and `meta` (P2-T05).
+
+**Concepts learned**
+- Operational vs programmer errors, error-handling middleware arity, `res.headersSent`, body-parser error `type`/`status`/`expose`, Mongoose `CastError` / `ValidationError` / duplicate key `11000`, HTTP 400 vs 409, JSend-style `fail` vs `error`, middleware order.

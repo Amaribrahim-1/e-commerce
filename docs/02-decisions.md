@@ -98,9 +98,18 @@
 - `serverSelectionTimeoutMS` is left at the driver default (30 s): Atlas is a replica set, and the docs advise against lowering it for replica sets. A wrong password fails fast anyway (auth error).
 - `/health` does not report the DB state for now (optional in the task).
 
+### Response and error shape (P1-T05)
+- **Success:** `{ "status": "success", "data": <payload or null> }`, sent only through `sendSuccess(res, statusCode, data)`. List endpoints will add a sibling `meta` key for pagination in P2-T05 (not implemented yet).
+- **Error:** `{ "status": "fail" | "error", "message": "..." }`. `fail` = client-side problem (4xx), `error` = server-side (5xx). The naming follows the JSend convention (community convention, not an Express rule).
+- **Reserved extension:** an optional `details` array on the error shape for field-level validation errors (P1-T06). It is absent for all other errors.
+- **Development only:** a `stack` key is added when `NODE_ENV=development`. Never in production or test.
+- **Operational vs unknown:** `AppError(message, statusCode)` marks an expected error (`isOperational = true`) and its message is client-safe. Any other error is a bug: logged with `console.error` (replaced by a real logger later) and answered with `500` and the generic message `Something went wrong`.
+- **Translation** (in `globalErrorHandler`, in every environment): Mongoose `CastError` -> `400`; Mongoose `ValidationError` -> `400`; duplicate key (`code 11000`) -> `409`; malformed JSON from `express.json()` (`type: entity.parse.failed`) -> `400`. Unknown route -> `404` via `notFoundHandler`.
+- **Middleware order in `app.js`:** `express.json()` -> routes -> `notFoundHandler` -> `globalErrorHandler` (last, 4 parameters, because Express recognises an error handler by its arity).
+- **Deferred to their own tasks:** `413` body too large (P1-T07), Zod errors (P1-T06), JWT/auth errors (Phase 2).
+
 ## Open (the learner decides during `/plan-task`)
 - Variant modeling: embedded in the product or a separate collection.
-- API response and error shape.
 - Auth token transport (header or cookie) and the exact reset-password flow.
 - Role storage (single role field or other).
 - Transactions versus compensating steps for order creation.
