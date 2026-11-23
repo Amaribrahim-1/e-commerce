@@ -108,6 +108,15 @@
 - **Middleware order in `app.js`:** `express.json()` -> routes -> `notFoundHandler` -> `globalErrorHandler` (last, 4 parameters, because Express recognises an error handler by its arity).
 - **Deferred to their own tasks:** `413` body too large (P1-T07), Zod errors (P1-T06), JWT/auth errors (Phase 2).
 
+### Request validation (P1-T06)
+- **Tool:** `validation({ body, params, query })` in `src/common/validation.js` takes an object of Zod schemas (each part optional) and returns a middleware. It runs `safeParse` on every part that has a schema and collects the issues of all parts before failing (it does not stop at the first one).
+- **Failure:** `400` with message `Invalid request data.` and `details`: an array of `{ location, path, message }`. `location` is `body`, `params` or `query`; `path` is the Zod issue path joined with `.` (for example `address.city`), or the part name when the issue is on the whole part. `details` is carried by `AppError(message, statusCode, details)` and written by `sendError`. Zod issue messages are client-safe, so they are sent as they are.
+- **Success:** parsed values (coerced, defaults applied) are stored on `req.validated.body`, `req.validated.params` and `req.validated.query`. The originals are never overwritten, because `req.query` is a read-only getter in Express 5. Handlers read from `req.validated`.
+- **Missing body:** `req.body` is `undefined` in Express 5 when nothing was parsed, so it is treated as `{}`. The client gets "required" errors for the fields instead of a confusing type error.
+- **Unknown keys:** **strip** (Zod's default for `z.object`), so extra keys are silently dropped. A schema that needs to reject them can use `.strict()`. Reason: tolerant of harmless extra fields, and the handler only ever sees what the schema allows. Source: Zod v4 docs (`z.object` strips unrecognized keys by default).
+- **ObjectId:** `objectIdSchema` and `idParamsSchema` in `src/common/objectIdSchema.js` check 24 hex characters with a regex. Mongoose `isValidObjectId` was not used because it also accepts any 12-character string. A bad `:id` is a `400` from validation, never a `CastError` `500`.
+- **Not done here:** business rules (for example "email already registered") stay in services, not in schemas.
+
 ## Open (the learner decides during `/plan-task`)
 - Variant modeling: embedded in the product or a separate collection.
 - Auth token transport (header or cookie) and the exact reset-password flow.
