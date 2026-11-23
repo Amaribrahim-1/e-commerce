@@ -68,3 +68,20 @@ One entry per task that reached "Ready" in `/review-task`: date, task ID, the mo
 
 **Concepts learned**
 - Operational vs programmer errors, error-handling middleware arity, `res.headersSent`, body-parser error `type`/`status`/`expose`, Mongoose `CastError` / `ValidationError` / duplicate key `11000`, HTTP 400 vs 409, JSend-style `fail` vs `error`, middleware order.
+
+## 2026-11-24 - P1-T06 Request validation with Zod
+
+**Most important feedback**
+- The idea was right from the start: a middleware that runs `safeParse` and stores the result on a new property. What was missing was how the pieces connect. A middleware only receives `(req, res, next)`, so it cannot know which schema to use. The fix is a **factory**: `validation(schemas)` is called when the route is defined, remembers the schemas in a closure, and returns the real middleware that Express calls per request.
+- `safeParse` must be called on the schema with the **data** (`schema.safeParse(req.body)`). The first version passed only the schema, so nothing was ever checked. The schema is the rule; the request part is the thing being checked.
+- One middleware validates `body`, `params` and `query` separately. Issues of all parts are collected before failing, so the client sees every problem in one response instead of fixing them one by one.
+- Express 5 detail: `req.query` is a read-only getter, so parsed values go to `req.validated.body|params|query` and handlers read from there. `req.body` is `undefined` when nothing was parsed (body-parser 2), so it is treated as `{}` and the client gets "field is required" instead of a confusing type error.
+- The error shape is a contract: `details` is an array of `{ location, path, message }`. `path` is the Zod issue path joined with `.`, falling back to the part name when the issue is on the whole part. `AppError` takes an optional third argument and `sendError` writes it only when present, so no other error changes.
+- Unknown keys are **stripped** (Zod's default for `z.object`); a schema that must reject them uses `z.strictObject` or `.strict()`.
+- ObjectId check uses a 24-hex regex, not Mongoose `isValidObjectId`, which also accepts any 12-character string. A bad `:id` is a `400` from validation, never a `CastError` `500`.
+- Review fix: `validation()` now throws when the route is defined if it gets no schemas or a wrong key (`{ bdy: ... }`). Without this, a typo silently skips validation and unchecked input reaches the handler. Same fail-fast idea as the config module.
+- To remember for later tasks: `z.coerce.number()` turns `""` and `null` into `0`, so `?minPrice=` passes as `0`. Use `.positive()` / `.min()` where zero is not valid, and be careful with optional numeric query params (P3-T06, P2-T05). Zod's default messages (for example "Invalid input: expected string, received undefined") are readable but not form-friendly; custom messages can be added per schema or globally when the frontend needs them.
+- Business rules (for example "email already registered") stay in services, not in schemas. Schemas check shape only.
+
+**Concepts learned**
+- Higher-order function / factory middleware and closures, Zod `safeParse`, `error.issues` and `path`, `z.coerce`, `.default()`, strip vs strict, Express 5 `req.query` getter and `req.body` undefined, fail-fast at startup, validation at the edge vs business rules in services.
