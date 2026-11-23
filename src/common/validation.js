@@ -5,7 +5,19 @@ const PARTS = ['body', 'params', 'query'];
 
 // Builds a middleware from an object of Zod schemas, for example
 // { body: someSchema, params: otherSchema }. Parts without a schema are skipped.
-export const validation = (schemas) => {
+export const validation = (schemas = {}) => {
+  // Fail fast when the route is defined (at startup), not when a request
+  // arrives. A typo such as `{ bdy: schema }` would otherwise skip validation
+  // silently and let unchecked input through.
+  const keys = Object.keys(schemas);
+  const unknownKeys = keys.filter((key) => !PARTS.includes(key));
+  if (keys.length === 0 || unknownKeys.length > 0) {
+    throw new Error(
+      `validation() expects at least one of: ${PARTS.join(', ')}` +
+        (unknownKeys.length > 0 ? ` (got: ${unknownKeys.join(', ')})` : ''),
+    );
+  }
+
   return (req, res, next) => {
     const validated = {};
     const details = [];
