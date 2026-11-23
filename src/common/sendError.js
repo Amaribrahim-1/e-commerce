@@ -11,6 +11,8 @@ export const sendError = (res, err) => {
   if (err.isOperational) {
     statusCode = err.statusCode;
     response = { status: err.status, message: err.message };
+    // Present only for field-level (validation) errors; absent otherwise.
+    if (err.details) response.details = err.details;
   } else {
     console.error('ERROR', err);
   }
