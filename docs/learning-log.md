@@ -124,3 +124,25 @@ One entry per task that reached "Ready" in `/review-task`: date, task ID, the mo
 
 **Concepts learned**
 - Embedded vs referenced documents, bounded vs unbounded arrays, unique indexes on arrays (multikey), compound unique indexes and `null`, sparse vs partial indexes, denormalization and snapshots, polymorphic references, single source of truth, schema-level vs service-level invariants, conditional atomic updates, `immutable` paths, Mermaid `erDiagram` (identifying vs non-identifying lines).
+
+## 2026-11-25 - P1-T09 Data design: order and payment state diagrams
+
+**How this task was done:** state machines were new to the learner, so the design was built with the mentor and then reviewed. Result: `docs/design/order-state-machine.md` (two Mermaid diagrams, transition tables, labels, concurrency). P5-T01, P5-T05, P6-T02, P6-T03 and P6-T04 all implement pieces of this file, so re-read it before each of them.
+
+**Most important feedback**
+- **A state machine is a whitelist.** List the allowed moves (from, to, who, guard, side effects); everything else is forbidden and returns `409`. Do not write "forbidden" rules one by one: you will always forget one (going back, skipping, leaving a final state, the same state twice).
+- **The server owns the state.** The client never says "set status to X"; it asks for an action ("ship this order") and the server checks the current state against the table. Otherwise any client could jump an order from `pending` to `delivered`.
+- **Two machines, not one field.** `status` is logistics, `paymentStatus` is money. They are linked by guards ("mark paid only when delivered"), not merged. A future online payment changes only the payment machine.
+- **Payment values `pending`, `paid`, `voided`.** A cancelled COD order is `voided`, not left `pending`, because `pending` means "money is still expected" and reports (cash to collect, P7-T02 sales) would count it. No `refunded`: `paid` only happens after `delivered`, and nothing can be cancelled after `shipped`; refunds after a return live in `ReturnRequest.refundStatus`.
+- **Mark paid is a separate action** (`POST /api/v1/admin/orders/:id/mark-paid`, P6-T03), not automatic on `delivered`. Delivery and cash collection are two different facts with two different actors; keeping them apart makes "delivered but not paid yet" visible.
+- **Two operators press "ship" at the same time:** read-check-save is a race condition (check-then-act): both read `packing`, both pass, both save, two history entries. The fix is to put the check **inside the write**: one conditional update with `status: 'packing'` in the filter. A single-document write is atomic, so exactly one matches; the other gets `null` and the service answers `409` (or `404` if the order does not exist or is not the customer's).
+- **Fixed in review:**
+  - The cancel filter must use "status in the states this actor may cancel from" (two or three states, not one), plus `userId` for a customer, so ownership is checked inside the same write.
+  - A conditional update that matches nothing **does not abort a transaction by itself**. The service must check the result and throw; the throw is what makes `connection.transaction()` abort (Mongoose docs). Forgetting this would restore stock for an order that was never cancelled.
+  - Two concurrent cancels inside transactions: the second gets a write conflict (`TransientTransactionError`), the helper retries, the filter no longer matches, `409`.
+  - Mark-paid guard now also has `paymentMethod = cod`; the audit action list now has `payment_status_changed`; the old "Order flow" decision line points to the refined mark-paid decision.
+- **Order of checks** on every transition endpoint: `401` -> `403` -> `400` -> `404` (not found or not own) -> `409` (wrong state). Ownership before state, so a customer never learns anything about another user's order.
+- **Accepted gap:** a refused COD parcel has no path after `shipped` (a `delivery_failed` state is post-MVP).
+
+**Concepts learned**
+- Finite state machines, transition tables, guards, final states, whitelist vs blacklist rules, server-owned state, race conditions (check-then-act), conditional atomic updates (optimistic concurrency on the state field), transaction abort by throwing and automatic retry of transient errors, separating fulfilment from payment state, code vs display label, Mermaid `stateDiagram-v2`.
