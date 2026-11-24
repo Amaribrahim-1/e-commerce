@@ -126,10 +126,33 @@
 - **Trust proxy:** `TRUST_PROXY_HOPS` (default `0` = no proxy, the app is reached directly). Set it to the real number of proxies when deployed (for example `1` behind one platform proxy). Never `true`: any client could fake `X-Forwarded-For` and so fake its IP. Why it matters: with a proxy and the default, `req.ip` is the proxy's IP, so the rate limiter (P2-T08) would count all users as one; with a wrong high value, attackers can dodge the limiter.
 - **Known and accepted:** `npm audit` reports 2 moderate issues, both in `nodemon` -> `minimatch` (a development tool, never in production). The suggested `npm audit fix --force` would install an older nodemon, so it is not applied. Re-check when nodemon releases a fixed version.
 
+### Data design (P1-T08)
+Full model: `docs/design/erd.md` (diagram) and `docs/design/data-model.md` (fields, indexes, snapshots, invariants). Sources: MongoDB Manual (Embedded Data, Reference Data, Unique and Partial Indexes, Atomicity and Transactions, Unbounded Arrays) and Mongoose docs (`unique`, `enum`, `immutable`, update validators), checked through Context7.
+
+**Rules used for embed vs reference** (documented guidance plus our reading of it): embed when the child is bounded, always read with the parent, changes atomically with it, or is a snapshot; reference when the child is unbounded, queried alone, changes often, or needs database-level uniqueness of its own.
+
+- **Variant modeling: separate `variants` collection** (one document per SKU, with `productId`).
+  - Why: (1) a unique index on an array only prevents duplicates **between documents**, so embedded variants could not enforce "unique SKU" and "unique size+color inside one product" in the database; (2) stock deduction is one atomic conditional update on one document (`stock >= n`); (3) cart, order items, inventory adjustments and audit entries all point to one `variantId`; (4) the product document stays small.
+  - Costs accepted: the product list needs price range and in-stock info, so it uses an aggregation (or denormalized fields, decided in P3-T06); creating a product with its variants writes to two collections, so it uses a transaction; the product page needs a second query.
+  - Embedded was the valid alternative if read simplicity mattered more; then the code would have to guard both invariants.
+- **Address storage: embedded array in User**, with a maximum count (about 10) and per-address `_id`.
+  - Why: bounded, always read with the user, never queried alone, ownership is implied by the parent (MongoDB manual uses exactly this "patron with addresses" pattern). The order keeps a **snapshot** copy, not a reference.
+  - Trade-off: searching addresses across users (reports) would be harder; not needed in the MVP.
+- **Role storage: single `role` enum field** on User (`admin`, `catalog_manager`, `order_operator`, `customer`).
+  - Why: four fixed roles, no one needs two roles, the permission table is per role, and the "at least one active admin" check is one query. Moving to an array later is a small migration if ever needed.
+  - Trade-off: no multi-role users.
+- **Password reset token:** two fields on User, `passwordResetTokenHash` and `passwordResetExpires` (both `select: false`, cleared after use). One pending reset per user (a new request replaces the old one); bounded and read with the user. A separate collection with a TTL index is the alternative if multiple tokens or history are ever needed.
+- **Cart:** one document per user (unique `userId`), embedded `items` with `variantId` and `quantity`, **no price stored** (the cart is an intention; the price is read from the variant). One line per variant is guaranteed by a conditional update in the service, not by an index.
+- **Order:** items, address, coupon, `statusHistory`, `shipment` and `cancellation` embedded; money and descriptive fields are snapshots (full list in `data-model.md`); `userId`, `variantId` and `couponId` stay as references on purpose. Snapshot fields are `immutable`.
+- **AuditLog, ReturnRequest, ShippingZone, Coupon, Category, Product:** own collections (see `data-model.md` for why each one).
+- **Stock ledger = the audit log.** No separate `InventoryAdjustment` collection. Every stock change (manual adjustment or order create/cancel) writes one AuditLog entry with `before.stock`, `after.stock`, a `reason` from a fixed list (`initial_stock`, `restock`, `damaged`, `lost`, `correction`, `order_placed`, `order_cancelled`) and `meta` (`change`, `orderId`). The Variant holds the current stock; the log holds the history. Affects P2-T10 (schema), P3-T05 and P5-T02/T05.
+- **Purchasable rule:** a line can be added, quoted or ordered only if the variant, its product and the product's category are all active. Deactivating a product or category never rewrites its variants; the check reads all three. Affects P3-T06/T08, P4-T02/T03, P5-T01.
+- **Money invariants added:** variant price `> 0`; order `discount <= subtotal` (so the total never goes negative, EC-08).
+- **Clearing optional indexed fields:** use `$unset`, not `null` (a sparse index still indexes `null`, MongoDB Manual, Sparse Indexes). Applies to the reset-token fields (P2-T07/T08).
+- **To verify when the task comes up (not yet confirmed):** unique multikey + partial index for shipping zones (test on Atlas in P4-T01); duplicate-key behavior inside a transaction for the random `orderNumber` (P5-T01); `initialStockSet` flag versus other options for `initial_stock` (P3-T05); hash choice for the reset token (P2-T07).
+
 ## Open (the learner decides during `/plan-task`)
-- Variant modeling: embedded in the product or a separate collection.
 - Auth token transport (header or cookie) and the exact reset-password flow.
-- Role storage (single role field or other).
 - Transactions versus compensating steps for order creation.
 - Folder structure details (see `.claude/rules/folder-structure.md`).
 
