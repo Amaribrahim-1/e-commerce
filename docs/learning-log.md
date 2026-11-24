@@ -85,3 +85,22 @@ One entry per task that reached "Ready" in `/review-task`: date, task ID, the mo
 
 **Concepts learned**
 - Higher-order function / factory middleware and closures, Zod `safeParse`, `error.issues` and `path`, `z.coerce`, `.default()`, strip vs strict, Express 5 `req.query` getter and `req.body` undefined, fail-fast at startup, validation at the edge vs business rules in services.
+
+## 2026-11-24 - P1-T07 Security and logging middleware
+
+**How this task was done:** security was new to the learner, so the code was written by the mentor in three steps (helmet; CORS and body limit; morgan and trust proxy) and each step was explained and tried in Postman before the next one. The learner still has to be able to explain every part below; re-read it before Phase 2.
+
+**Most important feedback**
+- **Helmet** sets response headers that tell the browser to be careful: `X-Content-Type-Options: nosniff` (no guessing of file types), `X-Frame-Options` (no framing, so no clickjacking), `Strict-Transport-Security` (HTTPS only, ignored over plain HTTP), `Content-Security-Policy`, `Referrer-Policy`, and it removes `X-Powered-By` so the server does not advertise itself. It must come before the routes so errors and 404s get the headers too.
+- **CORS** is a browser rule, not a server defence. The browser blocks a page from another origin from reading our responses unless the server lists that origin in `Access-Control-Allow-Origin`. Postman, curl and scripts ignore it completely, so it never replaces authentication. A request with a header like `Authorization` or the method `PUT`/`DELETE` triggers a **preflight** (`OPTIONS`) first; the `cors` package answers it with `204`. An origin not in the list gets no header and the server still answers `200`: the browser, not the server, blocks it. `credentials` stays off until the token transport (header or cookie) is chosen, and `*` cannot be combined with credentials.
+- **Body limit**: `express.json()` buffers the whole body in memory, so without `limit` one huge request can exhaust memory (a cheap denial of service). Over the limit, body-parser raises `entity.too.large` with status 413. That error has no `isOperational`, so without a translation in `globalErrorHandler` it would become a generic `500` and be logged as a bug. The same pattern as `entity.parse.failed` in P1-T05.
+- **morgan** logs one line per request (method, URL, status, time). It is first in the chain so it also sees requests rejected later. It runs only in development; in production a structured logger will replace it together with `console.error`.
+- **trust proxy**: behind a reverse proxy every request arrives from the proxy's IP, so `req.ip` would be the same for everybody and the rate limiter (P2-T08) would treat all users as one. Express can read the real IP from `X-Forwarded-For`, but only for as many hops as we trust. `true` (trust everything) is dangerous because any client can send a fake `X-Forwarded-For`. It is a config number (`TRUST_PROXY_HOPS`, default 0), so deploying needs no code change.
+- **Bug found in review:** the config accepted `CORS_ORIGINS=*` in development, but the `cors` package treats `"*"` inside an array as a normal string, so nothing was allowed and nothing warned. Lesson: an option the config accepts must be proven to do something; test the behaviour, not only that the app starts.
+- Config validated at startup (fail fast): a trailing slash in an origin (`http://x.com/`) is the classic mistake because a browser's `Origin` never has a trailing slash, so the list would silently never match. `*` in production and a non-numeric `TRUST_PROXY_HOPS` also stop the app with a clear message.
+- Middleware order is part of the design: `morgan` -> `helmet` -> `cors` -> `express.json` -> routes -> `notFoundHandler` -> `globalErrorHandler`. Recorded in `docs/02-decisions.md`.
+- `npm audit` shows 2 moderate issues in `nodemon` -> `minimatch` (dev tool only). `npm audit fix --force` would downgrade nodemon, so it was not applied. Recorded as known and accepted.
+
+**Concepts learned**
+- Same-Origin Policy, CORS and preflight, what CORS does not protect, HTTP security headers (nosniff, clickjacking, HSTS, CSP), request body limits and 413, request logging formats, reverse proxies and `X-Forwarded-For`, `trust proxy` and why `true` is unsafe, `npm audit` and dev vs production dependencies.
+- To study before P2-T08 (rate limiting) and the auth tasks: how `req.ip` is computed, and how cookies and CORS credentials interact if the token is sent in a cookie.
