@@ -21,6 +21,9 @@ const handleValidationError = (err) => {
 const handleMalformedJson = () =>
   new AppError('Request body is not valid JSON.', 400);
 
+const handleBodyTooLarge = () =>
+  new AppError('Request body is too large.', 413);
+
 // Turns known library errors into operational ones. Anything unknown is
 // returned untouched and ends up as a generic 500 in sendError.
 const translateError = (err) => {
@@ -29,6 +32,8 @@ const translateError = (err) => {
   if (err.name === 'ValidationError') return handleValidationError(err);
   // express.json() (body-parser) raises this for a body that is not valid JSON.
   if (err.type === 'entity.parse.failed') return handleMalformedJson();
+  // express.json() raises this when the body is bigger than the configured limit.
+  if (err.type === 'entity.too.large') return handleBodyTooLarge();
   return err;
 };
 
