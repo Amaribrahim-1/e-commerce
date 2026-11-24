@@ -1,6 +1,6 @@
 # ERD (Entity Relationship Diagram)
 
-Status: final for the MVP (P1-T08, reviewed 2026-11-24). The details of each entity are in `data-model.md`. Order and payment states are drawn in P1-T09.
+Status: final for the MVP (P1-T08, reviewed 2026-11-24). The details of each entity are in `data-model.md`. Order and payment states are drawn in `order-state-machine.md` (P1-T09).
 
 Tool: Mermaid (plain text in git, renders in VS Code and GitHub).
 
@@ -153,7 +153,7 @@ erDiagram
         object coupon "couponId ref + code/type/value snapshot"
         string status "pending | accepted | packing | shipped | delivered | cancelled"
         string paymentMethod "cod"
-        string paymentStatus "values set in P1-T09"
+        string paymentStatus "pending | paid | voided"
         date paidAt
         ObjectId paymentConfirmedBy FK
         array statusHistory "embedded: status, at, by, byRole, note"

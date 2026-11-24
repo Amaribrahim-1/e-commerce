@@ -41,7 +41,7 @@ Append-only record of who changed what and when.
 |---|---|---|
 | actorId | ObjectId (ref User) | required |
 | actorRole | String | role at the time of the action (it can change later) |
-| action | String enum | for example `price_changed`, `stock_adjusted`, `role_changed`, `coupon_changed`, `order_status_changed` |
+| action | String enum | for example `price_changed`, `stock_adjusted`, `role_changed`, `coupon_changed`, `order_status_changed`, `payment_status_changed` |
 | entityType | String | for example `Variant`, `Order`, `Coupon`, `User` |
 | entityId | ObjectId | required |
 | before, after | Mixed | old and new values (only the changed fields) |
@@ -152,7 +152,7 @@ An order is a closed financial event: it must explain itself years later, even i
 | coupon | object or null | `{ couponId, code, type, value }` (couponId is a reference used to release usage on cancel; the rest is a snapshot) |
 | status | String enum | `pending`, `accepted`, `packing`, `shipped`, `delivered`, `cancelled` |
 | paymentMethod | String enum | `cod` only for now (extensible) |
-| paymentStatus | String enum | values decided in P1-T09 |
+| paymentStatus | String enum | `pending`, `paid`, `voided` (default `pending`); transitions in `order-state-machine.md` |
 | paidAt, paymentConfirmedBy | Date, ObjectId | set when COD payment is confirmed |
 | statusHistory | [{ status, at, by, byRole, note }] | embedded, append-only, bounded by the state machine; `by` refs User, `byRole` is a snapshot (customer or staff) |
 | shipment | object | `{ carrier, trackingNote, shippedAt, deliveredAt }` (no separate Shipment entity) |

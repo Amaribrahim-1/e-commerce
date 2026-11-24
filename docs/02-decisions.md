@@ -23,7 +23,7 @@
 - An order is created as `pending`. An order operator or admin moves it `pending -> accepted -> packing -> shipped -> delivered`. Any other transition is rejected.
 - A customer may cancel their own order only while it is `pending` or `accepted`. Staff may cancel until before `shipped`. After `shipped` there is no cancellation (returns instead).
 - Cancellation restores the stock and the coupon usage in the same transaction.
-- COD `paymentStatus` becomes `paid` at `delivered`, set by an order operator or admin.
+- COD `paymentStatus` becomes `paid` at `delivered`, set by an order operator or admin. Refined in P1-T09: it is a separate "mark paid" action, allowed only once the order is `delivered` (see "Order and payment state machines" below).
 
 ### Shipping
 - Shipping zones by governorate: a `ShippingZone` holds a list of governorates and a fee. Admin has CRUD on zones.
@@ -150,6 +150,20 @@ Full model: `docs/design/erd.md` (diagram) and `docs/design/data-model.md` (fiel
 - **Money invariants added:** variant price `> 0`; order `discount <= subtotal` (so the total never goes negative, EC-08).
 - **Clearing optional indexed fields:** use `$unset`, not `null` (a sparse index still indexes `null`, MongoDB Manual, Sparse Indexes). Applies to the reset-token fields (P2-T07/T08).
 - **To verify when the task comes up (not yet confirmed):** unique multikey + partial index for shipping zones (test on Atlas in P4-T01); duplicate-key behavior inside a transaction for the random `orderNumber` (P5-T01); `initialStockSet` flag versus other options for `initial_stock` (P3-T05); hash choice for the reset token (P2-T07).
+
+### Order and payment state machines (P1-T09)
+Full diagrams and transition tables: `docs/design/order-state-machine.md`.
+
+- **Whitelist:** only the listed transitions exist; anything else (skip, go back, leave a final state, same state) is `409`. The server owns the state; clients call actions, they never pick a free target status.
+- **Two machines on one Order:** `status` (fulfilment) and `paymentStatus` (money), linked by guards, not merged. Reason: a gateway later changes only the payment machine.
+- **Order transitions:** `pending -> accepted -> packing -> shipped -> delivered` by admin or order operator. Cancel: customer (own order) from `pending`/`accepted`; admin or order operator from `pending`/`accepted`/`packing`. `delivered` and `cancelled` are final. The catalog manager has no order rights.
+- **Payment values:** `pending`, `paid`, `voided`. A cancelled COD order becomes `voided` (nothing is owed), so "cash to collect" and sales reports do not count it. No `refunded`: `paid` only happens after `delivered`, and there is no cancel after `shipped`; return refunds live in `ReturnRequest.refundStatus`.
+- **COD confirmation is a separate action** (`POST /api/v1/admin/orders/:id/mark-paid`), allowed only when `status = delivered` and `paymentStatus = pending`; sets `paidAt` and `paymentConfirmedBy`. Rejected alternative: setting `paid` automatically on `delivered` (mixes a logistics fact with a money fact and hides "delivered but cash not yet received"). Affects P6-T03.
+- **Cancellation** is one transaction whose first step is the conditional status update; if it matches nothing, the transaction aborts, so stock and coupon usage are never restored twice. Reason required for staff, optional for customers.
+- **Concurrency:** every transition is one conditional update with the expected current state in the filter (single-document writes are atomic, MongoDB Manual). The loser gets `409`. Inside a transaction, a filter that matches nothing does not abort by itself: the service must check the result and throw, and the throw is what aborts (Mongoose docs, Transactions). For a customer, ownership (`userId`) is part of the same filter.
+- **Order of checks:** `401` -> `403` -> `400` -> `404` (not found or not own) -> `409` (wrong state).
+- **Labels:** stored value is the code; a single server-side map gives the label (`statusLabel`, `paymentStatusLabel`), ready for an Arabic set later.
+- **Accepted gap:** a refused COD parcel has no path after `shipped`; a `delivery_failed` state is post-MVP.
 
 ## Open (the learner decides during `/plan-task`)
 - Auth token transport (header or cookie) and the exact reset-password flow.
