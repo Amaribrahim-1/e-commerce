@@ -104,3 +104,23 @@ One entry per task that reached "Ready" in `/review-task`: date, task ID, the mo
 **Concepts learned**
 - Same-Origin Policy, CORS and preflight, what CORS does not protect, HTTP security headers (nosniff, clickjacking, HSTS, CSP), request body limits and 413, request logging formats, reverse proxies and `X-Forwarded-For`, `trust proxy` and why `true` is unsafe, `npm audit` and dev vs production dependencies.
 - To study before P2-T08 (rate limiting) and the auth tasks: how `req.ip` is computed, and how cookies and CORS credentials interact if the token is sent in a cookie.
+
+## 2026-11-24 - P1-T08 Data design: ERD
+
+**How this task was done:** data modeling was new to the learner, so the model was built with the mentor entity by entity, and the review added the missing pieces. Result: `docs/design/erd.md` (Mermaid diagram) and `docs/design/data-model.md` (fields, indexes, snapshots, invariants). Every later model task (P2-T01, P3-T02, P4, P5-T01) starts from these two files, so re-read them before each one.
+
+**Most important feedback**
+- **Embed or reference: ask questions, not taste.** Embed when the child is bounded, always read with the parent, must change atomically with it, or is a snapshot (addresses, cart items, order items, statusHistory). Reference when it is unbounded, queried alone, or needs its own uniqueness (variants, orders, audit log). Every relationship in the ERD was decided with these questions.
+- **Why variants are their own collection:** a unique index on an array field only blocks duplicates **between documents**, not inside one document. Embedded variants could not guarantee "unique SKU" or "unique size+color per product" in the database. As separate documents, both are unique indexes, and buying one SKU is one atomic conditional update on one document (`stock >= n`). That is brief scenario 01: the other variant's document is never touched. The cost: the product list needs an aggregation for price range and stock (P3-T06), and creating a product with variants writes two collections.
+- **Snapshots vs references on the Order.** An order must explain itself years later, so price, title, SKU, address, shipping fee and coupon values are **copied** (snapshots, `immutable`). Only three things stay references on purpose: `userId` (owner), `variantId` (restock on cancel), `couponId` (release usage on cancel). The cart is the opposite: it stores no price because it is an intention, not a sale.
+- **Where an invariant lives.** The database guards what an index or schema can express (unique email/SKU/code/orderNumber, one cart per user, enums, `min: 0`). Rules across documents or depending on state live in services as **conditional atomic updates** (`stock >= n`, `usedCount < usageLimit`, `status: 'pending'`) or transactions. Mongoose update validators are off by default, so `min: 0` does not protect a `$inc`; the filter does.
+- **Gaps found in review and fixed:**
+  - No home for stock history. Decision: the audit log is the stock ledger (reason enum + before/after + `meta.orderId`), no separate collection.
+  - "Purchasable" was not defined. A variant can be active while its product or category is not. Rule: check all three, never copy the flag down.
+  - `discount <= subtotal` was missing, so a fixed coupon larger than the subtotal could make `total` negative. Variant price is now `> 0`.
+  - A sparse index still indexes `null`; clear optional indexed fields with `$unset`.
+  - The diagram had no line for ShippingZone and none for staff references on the Order. Now dashed lines show links that have no stored foreign key (governorate match, polymorphic `entityType` + `entityId`).
+- **Things left to test when their task comes** (written in decisions): unique multikey + partial index for shipping zones (P4-T01), duplicate `orderNumber` inside a transaction (P5-T01), the `initialStockSet` flag (P3-T05), the reset-token hash (P2-T07).
+
+**Concepts learned**
+- Embedded vs referenced documents, bounded vs unbounded arrays, unique indexes on arrays (multikey), compound unique indexes and `null`, sparse vs partial indexes, denormalization and snapshots, polymorphic references, single source of truth, schema-level vs service-level invariants, conditional atomic updates, `immutable` paths, Mermaid `erDiagram` (identifying vs non-identifying lines).
