@@ -23,8 +23,8 @@ if (config.env === 'development') {
 app.use(helmet());
 
 // CORS allow-list from config. Not listed => no Access-Control-Allow-Origin
-// header, so the browser blocks the response. Credentials stay off until the
-// auth token transport (header vs cookie) is decided in Phase 2.
+// header, so the browser blocks the response. Credentials stay off: the access
+// token travels in the Authorization header, not in a cookie (P2-T02).
 // A "*" inside the array is just a string to the cors package, not a wildcard,
 // so it is mapped to the real wildcard here (config rejects it in production).
 app.use(
