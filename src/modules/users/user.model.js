@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
-import { ROLES } from '../../common/roles.js';
-import { EGYPT_PHONE_REGEX } from '../../common/phone.js';
+import { ROLES } from '../../common/constants/roles.js';
+import { EGYPT_PHONE_REGEX } from '../../common/validators/phone.js';
 
 const userSchema = new mongoose.Schema(
   {

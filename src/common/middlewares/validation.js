@@ -1,4 +1,4 @@
-import { AppError } from './AppError.js';
+import { AppError } from '../errors/AppError.js';
 
 // The request parts a route may validate. Each one is optional.
 const PARTS = ['body', 'params', 'query'];

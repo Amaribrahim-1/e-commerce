@@ -3,9 +3,9 @@ import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
 import { config } from './config/index.js';
-import { sendSuccess } from './common/sendSuccess.js';
-import { notFoundHandler } from './common/notFoundHandler.js';
-import { globalErrorHandler } from './common/globalErrorHandler.js';
+import { apiRouter } from './routes.js';
+import { notFoundHandler } from './common/errors/notFoundHandler.js';
+import { globalErrorHandler } from './common/errors/globalErrorHandler.js';
 
 export const app = express();
 
@@ -39,9 +39,8 @@ app.use(
 // Reject oversized JSON bodies early (413) instead of buffering them in memory.
 app.use(express.json({ limit: config.bodyLimit }));
 
-app.get('/api/v1/health', (req, res) => {
-  sendSuccess(res, 200, null);
-});
+// Every API route lives under /api/v1 (see routes.js).
+app.use('/api/v1', apiRouter);
 
 app.use(notFoundHandler);
 app.use(globalErrorHandler);

@@ -1,5 +1,5 @@
 import { AppError } from './AppError.js';
-import { sendError } from './sendError.js';
+import { sendError } from '../http/sendError.js';
 
 const handleCastError = (err) =>
   new AppError(`Invalid ${err.path}: ${err.value}`, 400);

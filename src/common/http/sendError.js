@@ -1,4 +1,4 @@
-import { config } from '../config/index.js';
+import { config } from '../../config/index.js';
 
 // Sends the one error shape of the API: { status, message, stack? }.
 // Operational errors (AppError) expose their own status and message.
