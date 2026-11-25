@@ -165,10 +165,58 @@ Full diagrams and transition tables: `docs/design/order-state-machine.md`.
 - **Labels:** stored value is the code; a single server-side map gives the label (`statusLabel`, `paymentStatusLabel`), ready for an Arabic set later.
 - **Accepted gap:** a refused COD parcel has no path after `shipped`; a `delivery_failed` state is post-MVP.
 
+### User model (P2-T01)
+Sources: Mongoose 9 docs (v9.0.1: `guide.md`, `schematypes.md`, `faq.md`, `migrating_to_9.md`), node.bcrypt.js README, bcrypt.js README, OWASP Password Storage Cheat Sheet.
+
+- **Fields are added with the task that uses them** (YAGNI). P2-T01 has `name`, `email`, `phone`, `passwordHash`, `role`, `isActive`, `passwordChangedAt` and timestamps. The reset-token fields come in P2-T07 and `addresses` in P2-T09.
+- **`__v` is kept** in the database. Mongoose's default versioning protects array updates done through `save()` (a stale copy that edits a shifted array index gets a `VersionError`), and `addresses` will be an embedded array. It is hidden from responses only (see `toJSON` below). It is not updated by `findOneAndUpdate`/`updateOne` (Mongoose docs).
+- **Email:** `unique` index, `lowercase`, `trim`. The format check is done by Zod at the edge only (no `match` in the schema): an email regex is hard to get right, and two copies would drift apart.
+- **Phone rule:** local Egyptian mobile format only: `01`, then one of `0` / `1` / `2` / `5` (Vodafone, e&, Orange, WE), then 8 digits = 11 digits, for example `01012345678`. `+20` and `0020` are rejected, and the number is stored exactly in this one form (canonical form), so search, comparison and the order snapshot stay simple. The regex is defined once (`EGYPT_PHONE_REGEX`) and used by both Zod (from P2-T02) and the schema `match` (last line of defence for writes that skip Zod, such as scripts and seeds).
+- **Roles:** one frozen constant `ROLES`, shared by the schema `enum` (and its default) and the authorization middleware (P2-T04). No role string is typed by hand anywhere else.
+- **Password hashing library: `bcrypt`** (native). It runs the hashing off the main thread; `bcryptjs` is pure JavaScript, about 30% slower and works on the main thread (bcrypt.js README). `bcryptjs` is the fallback if the native install ever fails. Known: OWASP ranks Argon2id first and bcrypt for legacy systems; bcrypt is kept because it is in the agreed stack and safe with a proper cost.
+- **Cost factor:** `BCRYPT_SALT_ROUNDS` in config (default `12`, minimum `10`, the OWASP minimum). Each +1 doubles the time (`2^rounds` iterations, node.bcrypt.js README).
+- **Where hashing happens: in the service, not in a pre-save hook.** One module (`hashPassword`, `verifyPassword`) is the only place that imports `bcrypt`. Reasons: business rules live in services (code conventions); save hooks do not run on `findOneAndUpdate`/`updateOne`, and P2-T06/T08 change the password, so a hook could silently store a plain password; the field name `passwordHash` makes a plain value look wrong in review. Rejected: pre-save hook with `isModified('password')` (common in tutorials, never forgotten as long as `save()` is used).
+- **Password length:** bcrypt uses only the first **72 bytes** and silently ignores the rest. Zod rejects longer passwords in P2-T02 (bytes, not characters: an Arabic letter is 2 bytes).
+- **`passwordChangedAt`:** no default; empty until the first password change (P2-T06/T08). JWT `iat` is in seconds and `Date` in milliseconds, so the value is set so that it is older than the new token's `iat` (handled in P2-T03/T06).
+- **Reading the hash:** `passwordHash` has `select: false`. Only the login query asks for it (`+passwordHash`, P2-T03).
+- **Hiding sensitive fields in responses:** a `toJSON` transform on the schema removes `passwordHash` and `__v` (and the reset-token fields from P2-T07). Reason: `select: false` only affects queries, so the document returned by `create()`/`save()` still holds the hash; `toJSON` runs on `res.json()`. `.lean()` results skip `toJSON`, but they come from queries, where `select: false` applies.
+- **Indexes:** `autoIndex` stays on (Mongoose default) for now. Mongoose recommends turning it off in production and building indexes separately; revisit before deployment. The unique index only works once it is built, and it cannot be built while duplicates exist.
+
+### Folder structure (agreed during P2-T01)
+Based on the nodebestpractices guidance "structure your solution by business components" and common modular-monolith examples. The `<entity>.<layer>.js` file naming is a community convention, not an official rule. The refactor from the current layout is done in its own `refactor:` commit (with `git mv`, to keep history).
+
+```
+src/
+  app.js
+  server.js
+  routes.js                  mounts every module router under /api/v1
+  config/
+    index.js
+  common/                    only what no single module owns
+    errors/                  AppError.js, globalErrorHandler.js, notFoundHandler.js
+    http/                    sendSuccess.js, sendError.js (the API response shape, in one place)
+    middlewares/             validation.js
+    validators/              objectIdSchema.js, phone.js
+    constants/               roles.js (later: governorates)
+  modules/
+    users/                   user.model.js, password.service.js, then user.service.js,
+                             user.controller.js, user.routes.js, user.validation.js
+    auth/                    auth.routes.js, auth.controller.js, auth.service.js,
+                             auth.validation.js, auth.middleware.js (authenticate / authorize)
+    ...
+scripts/                     seed and other scripts, outside src
+```
+
+- **`routes.js` is one file, not a folder.** Each module owns its endpoints (`<entity>.routes.js`); the root file only decides the prefix of each module. A `routes/` folder would organise by type and contradict "by business module". It can become `routes/index.js` if it ever grows.
+- **`sendError` lives next to `sendSuccess`** (`common/http/`): both define the response shape, so a shape change touches one folder. `globalErrorHandler` imports `sendError` from there.
+- **Auth middleware lives in the auth module**, not in `common`: it depends on User and JWT.
+- **Naming:** file inside a module `<entity>.<layer>.js` (entity singular); module folder plural; file in `common` camelCase named after its export; file holding a class PascalCase (`AppError.js`); Model PascalCase singular; function camelCase starting with a verb; constant UPPER_SNAKE.
+- **Boundaries (community convention):** a module imports another module's **service or model only**, never its controller or routes. Dependencies go one way (`auth` depends on `users`, not the reverse). No `index.js` per module for now (easy to create circular imports).
+- **To decide in P2-T05:** admin endpoints (`/admin/users`) in a second routes file of the users module (for example `user.admin.routes.js`, recommended) or a separate module.
+
 ## Open (the learner decides during `/plan-task`)
 - Auth token transport (header or cookie) and the exact reset-password flow.
 - Transactions versus compensating steps for order creation.
-- Folder structure details (see `.claude/rules/folder-structure.md`).
 
 ## Libraries
 **In scope (verify the latest version before using):** `express`, `mongoose`, `zod`, `jsonwebtoken`, `bcrypt` (or `bcryptjs`), `helmet`, `cors`, `express-rate-limit`, `dotenv` (or Node's `--env-file`), `morgan`, `slugify`, `resend`, `nodemon` (or `node --watch`), ESLint, Prettier.
