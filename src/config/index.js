@@ -43,6 +43,9 @@ const envSchema = z
     // reached directly). Express uses it to find the real client IP in
     // X-Forwarded-For. Never use "trust everything": clients could fake their IP.
     TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
+    // bcrypt cost factor: each +1 doubles the hashing time (2^rounds iterations).
+    // 10 is the OWASP minimum; 12 balances safety and login speed.
+    BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(10).max(14).default(12),
   })
   // Allowing every origin is acceptable on a developer machine only.
   .refine(
@@ -79,4 +82,5 @@ export const config = Object.freeze({
   }),
   bodyLimit: env.BODY_LIMIT,
   trustProxyHops: env.TRUST_PROXY_HOPS,
+  bcryptSaltRounds: env.BCRYPT_SALT_ROUNDS,
 });
