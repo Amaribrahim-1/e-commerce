@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { ROLES } from '../../common/constants/roles.js';
 import { EGYPT_PHONE_REGEX } from '../../common/validators/phone.js';
+import { NAME_MAX, NAME_MIN } from './user.constants.js';
 
 const userSchema = new mongoose.Schema(
   {
@@ -8,6 +9,8 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      minlength: NAME_MIN,
+      maxlength: NAME_MAX,
     },
     email: {
       type: String,
