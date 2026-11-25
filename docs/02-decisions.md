@@ -215,8 +215,20 @@ scripts/                     seed and other scripts, outside src
 - **Docs layout:** core reading stays flat and numbered at the top of `docs/` (`00-project-brief.md`, `01-scope.md`, `02-decisions.md`); grouped material lives in folders: `tasks/`, `design/`, `source/` and `learning-log/` (one file per phase, named like the matching task file, for example `learning-log/phase-2-auth-and-users.md`).
 - **To decide in P2-T05:** admin endpoints (`/admin/users`) in a second routes file of the users module (for example `user.admin.routes.js`, recommended) or a separate module.
 
+### Register and access tokens (P2-T02)
+Chosen by the mentor at the learner's request; the learner may revisit any of them. Sources: jsonwebtoken README (Context7, `/auth0/node-jsonwebtoken`), Zod v4 docs (zod.dev), Express 5 migration guide, NIST SP 800-63B-4 and OWASP cheat sheets (through web search, partly secondary sources), RFC 7518 3.2 (quoted by secondary sources).
+
+- **Token transport: `Authorization: Bearer <token>` header.** The token is returned in the response body of register/login; the client stores it and sends it in the header. Reasons: the API has no frontend yet and its clients are unknown (Postman, mobile, a SPA later); a header is not sent automatically by the browser, so there is no CSRF to defend against; CORS `credentials` stays off. Cost: a browser client can read the token, so XSS on that client could steal it; storing it safely (for example in memory, not `localStorage`) is the client's job. Rejected for now: httpOnly cookie (needs `cookie-parser`, `SameSite`/`Secure` settings, CSRF protection and CORS `credentials`). Revisit if a same-site web frontend is added.
+- **Access token payload:** `{ sub: <userId> }` only, plus `iat` and `exp` from jsonwebtoken. No role (it can change before the token expires; the auth middleware reads the current user from the database), nothing private (a JWT is signed, not encrypted). No refresh tokens in the MVP.
+- **JWT config:** `JWT_SECRET` at least 32 characters (HS256 key >= 256 bits, RFC 7518 3.2), generated randomly. `JWT_EXPIRES_IN` must be a number plus a unit (`s`, `m`, `h`, `d`), because jsonwebtoken reads a unit-less string as milliseconds. Algorithm `HS256` is fixed in `config.jwt.algorithm`, used by both sign and verify.
+- **Role on register:** unknown keys are stripped by Zod (P1-T06 rule) **and** the service sets `role: customer` explicitly (defense in depth; it does not rely on the schema default).
+- **Duplicate email:** no "find first" query; the unique index is the guard (a check-then-create would race), and `11000` becomes `409` in the global error handler. Register necessarily reveals whether an email is registered; accepted, and limited by rate limiting (P2-T08).
+- **Password policy:** 8 to 64 characters and at most 72 UTF-8 bytes (bcrypt limit), no composition rules, not trimmed. NIST SP 800-63B-4 suggests 15 when the password is the only factor; 8 is accepted for this project.
+- **Field rules:** name 2-50 characters (trimmed), limits in `users/user.constants.js` and enforced by both Zod and the User schema (`minlength`/`maxlength`, last line of defence like the phone `match`); email trimmed and lowercased, then checked with `z.email()` through `.pipe()`, at most 254 characters; phone trimmed, then `EGYPT_PHONE_REGEX`.
+- **Later:** the field schemas (email, password, ...) move to `users/user.validation.js` when P2-T06 needs them, so `users` never imports from `auth`. The same question applies to `signAccessToken` in P2-T06.
+
 ## Open (the learner decides during `/plan-task`)
-- Auth token transport (header or cookie) and the exact reset-password flow.
+- The exact reset-password flow.
 - Transactions versus compensating steps for order creation.
 
 ## Libraries
