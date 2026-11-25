@@ -1,13 +1,13 @@
 # Learning log: Phase 2 (Auth and users)
 
-One entry per task that reached "Ready" in `/review-task`: date, task ID, the most important feedback, concepts learned. Phase 1 is in `learning-log-phase-1.md`.
+One entry per task that reached "Ready" in `/review-task`: date, task ID, the most important feedback, concepts learned. Phase 1 is in `phase-1-foundation.md`.
 
 <!-- entries are appended below -->
 
 ## 2026-11-25 - P2-T01 User model
 
 **Most important feedback**
-- **Hash in the service, not in a pre-save hook.** Save hooks do not run on `findOneAndUpdate` / `updateOne`, and the password will be changed by later tasks (P2-T06, P2-T08), so a hook could silently store a plain password. One module (`password.js`) is the only place that imports `bcrypt`; the field is named `passwordHash` so a plain value looks wrong in review.
+- **Hash in the service, not in a pre-save hook.** Save hooks do not run on `findOneAndUpdate` / `updateOne`, and the password will be changed by later tasks (P2-T06, P2-T08), so a hook could silently store a plain password. One module (`password.service.js`) is the only place that imports `bcrypt`; the field is named `passwordHash` so a plain value looks wrong in review.
 - **`select: false` is not enough.** It only affects queries; the document returned by `create()` / `save()` still holds the hash. A `toJSON` transform removes `passwordHash` and `__v` from responses. `.lean()` skips `toJSON`, but lean results come from queries, where `select: false` applies.
 - **Uniqueness belongs to an index, not a validator.** `unique` plus `lowercase` makes `A@x.com` and `a@x.com` collide, and the duplicate key (code `11000`) becomes `409` in the central error handler. The index only exists once it is built, and it cannot be built while duplicates exist.
 - **bcrypt reads only 72 bytes.** Longer passwords are silently truncated, so Zod must reject them (bytes, not characters: an Arabic letter is 2 bytes). Cost factor lives in config (`BCRYPT_SALT_ROUNDS`, min 10, max 14); each +1 doubles the time.
