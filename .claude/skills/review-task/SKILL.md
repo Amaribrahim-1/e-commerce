@@ -33,7 +33,7 @@ Purpose: act as the senior reviewer. Help the learner reach the best version of 
 6. After fixes, the learner runs `/review-task` again. Repeat until the verdict is "Ready".
 7. When the verdict is "Ready" and the learner confirms, you may (and only then):
    - tick the task in `docs/tasks/00-index.md`;
-   - append an entry to `docs/learning-log.md`: date, task ID, the most important feedback, and the concepts learned.
+   - append an entry to the current phase file `docs/learning-log-phase-N.md` (create it if it does not exist yet): date, task ID, the most important feedback, and the concepts learned.
 
 ## Do not
 - Edit the learner's source code.
