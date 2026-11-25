@@ -46,6 +46,25 @@ const envSchema = z
     // bcrypt cost factor: each +1 doubles the hashing time (2^rounds iterations).
     // 10 is the OWASP minimum; 12 balances safety and login speed.
     BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(10).max(14).default(12),
+
+    // HMAC key for signing access tokens. RFC 7518 (3.2): an HS256 key must be
+    // at least as long as the hash output, 256 bits = 32 bytes. Generate it
+    // randomly (see .env.example); a short or guessable secret can be brute-forced
+    // offline from any token, and then anyone can forge tokens.
+    JWT_SECRET: z
+      .string()
+      .min(32, 'must be at least 32 characters (256 bits for HS256)'),
+    // Access token lifetime: a whole number followed by a unit (s, m, h, d),
+    // for example "15m" or "1d". The unit is required on purpose: jsonwebtoken
+    // reads a string without a unit as milliseconds ("120" = 120 ms), and every
+    // env value is a string, so a bare number would create tokens that expire
+    // almost immediately.
+    JWT_EXPIRES_IN: z
+      .string()
+      .regex(
+        /^[1-9]\d*[smhd]$/,
+        'must be a number followed by s, m, h or d (for example 15m or 1d)',
+      ),
   })
   // Allowing every origin is acceptable on a developer machine only.
   .refine(
@@ -83,4 +102,11 @@ export const config = Object.freeze({
   bodyLimit: env.BODY_LIMIT,
   trustProxyHops: env.TRUST_PROXY_HOPS,
   bcryptSaltRounds: env.BCRYPT_SALT_ROUNDS,
+  jwt: Object.freeze({
+    secret: env.JWT_SECRET,
+    expiresIn: env.JWT_EXPIRES_IN,
+    // Fixed in code, not in env: signing and verifying must use the same
+    // algorithm, and verify() must be told to accept only this one.
+    algorithm: 'HS256',
+  }),
 });
