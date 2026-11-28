@@ -225,7 +225,7 @@ Chosen by the mentor at the learner's request; the learner may revisit any of th
 - **Duplicate email:** no "find first" query; the unique index is the guard (a check-then-create would race), and `11000` becomes `409` in the global error handler. Register necessarily reveals whether an email is registered; accepted, and limited by rate limiting (P2-T08).
 - **Password policy:** 8 to 64 characters and at most 72 UTF-8 bytes (bcrypt limit), no composition rules, not trimmed. NIST SP 800-63B-4 suggests 15 when the password is the only factor; 8 is accepted for this project.
 - **Field rules:** name 2-50 characters (trimmed), limits in `users/user.constants.js` and enforced by both Zod and the User schema (`minlength`/`maxlength`, last line of defence like the phone `match`); email trimmed and lowercased, then checked with `z.email()` through `.pipe()`, at most 254 characters; phone trimmed, then `EGYPT_PHONE_REGEX`.
-- **Later:** the field schemas (email, password, ...) move to `users/user.validation.js` when P2-T06 needs them, so `users` never imports from `auth`. The same question applies to `signAccessToken` in P2-T06.
+- **Later:** the field schemas (email, password, ...) move to `users/user.validation.js` when P2-T06 needs them, so `users` never imports from `auth`. The same question applies to `signAccessToken` in P2-T06. `scripts/seed-admin.js` imports them too (P2-T04), so its import path changes with that move.
 
 ### Login (P2-T03)
 Chosen by the mentor at the learner's request; the learner may revisit any of them. Sources: node.bcrypt.js README (Context7, `/kelektiv/node.bcrypt.js`); RFC 9110 sections 15.5.2 (401) and 15.5.4 (403), from memory, not re-checked.
@@ -245,6 +245,21 @@ Sources: jsonwebtoken 9.0.3 README and autodocs (Context7, `/auth0/node-jsonwebt
 - **User loaded on every request** (`findById(sub)`, hash not selected): deleted or deactivated -> `401`; token `iat` before `passwordChangedAt` -> `401`. Comparison in whole seconds (`Math.floor(getTime() / 1000)`) with `<`, so a token made in the same second as a password change is accepted (P2-T06 returns one); the sub-second window for an older token is accepted.
 - **The password-change check is a private function of the middleware**, not in `password.service.js` (that file is only about bcrypt) and not a User method (it depends on JWT `iat` being in seconds, which the model should not know).
 - **`GET /users/me` has no service**: the middleware already loaded and checked the user, and there is no rule left to apply. `user.service.js` is created when P2-T06 needs it. The response is `{ user }`, the same shape as register and login.
+
+### Authorization and first-admin seed (P2-T04)
+Written by the mentor at the learner's request; the learner may revisit any of them. Sources: Mongoose docs on Context7 (`/automattic/mongoose`, current docs, no 9.12.3 snapshot): `validation.md` ("The unique Option is Not a Validator"), `faq.md`, `production/indexes.md` (`Model.init()`, `autoIndex`).
+
+- **`authorize(...allowedRoles)` in `auth/auth.middleware.js`**, a middleware factory used after `authenticate`: `router.get(path, authenticate, authorize(ROLES.ADMIN), handler)`. It reads the role from `req.currentUser` (loaded from the database), never from the token. Wrong role -> `403` (`AppError`).
+- **Fail fast on wrong calls.** The outer function runs once, when routes are defined, and throws on `authorize()` with no roles or on a role that is not in `Object.values(ROLES)` (for example a typo such as `ROLES.ADMNI`, which is `undefined`). The app crashes at startup instead of a route that silently refuses everyone.
+- **Programmer mistakes are plain `Error`, not `AppError`.** A missing `req.currentUser` (authorize used without authenticate) or a bad role list is a bug: `sendError` logs it and the client gets a generic `500`, never the internal message. `AppError` is only for answers meant for the client.
+- **Seed: `scripts/seed-admin.js`, run with `npm run seed:admin`** (`node --env-file-if-exists=.env`, like `start`).
+- **Seed credentials are not in the main config schema.** `SEED_ADMIN_NAME`, `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PHONE`, `SEED_ADMIN_PASSWORD` are read by `getSeedAdminConfig()` in `config/index.js` (so `process.env` is still read only there), on demand and raw. The running server never needs the admin password, so the keys are optional for it and can stay out of the server's env (least privilege).
+- **Seed values use the register field rules.** The script validates them with the field schemas exported from `auth/auth.validation.js` (`nameSchema`, `emailSchema`, `phoneSchema`, `passwordSchema`), so the admin cannot get a weaker password. Error output names the env key and the rule, never the value. Validation runs before connecting to the database.
+- **Idempotency rule: "is there any admin?", not "does this email exist?".** If any admin exists, the script changes nothing and exits `0`. Later admins and staff come from the API (P2-T05). The P2-T05 rule "at least one active admin" is what prevents a lock-out where the only admin is deactivated.
+- **An existing non-admin account is never promoted.** If the email belongs to a customer, the script fails (exit `1`): whoever registered that email owns its password.
+- **Race between two runs:** the `exists` checks only give clear messages; the unique email index is the real guard. `await User.init()` waits for the index build first (on a new database Mongoose builds it in the background, and an insert before it finishes would not be rejected). A duplicate key (`11000`) at insert -> clear message, exit `1`; running again shows the real state.
+- **Exit codes:** `0` = created or already there, `1` = any failure. `process.exitCode` instead of `process.exit()`, so the `finally` block disconnects from MongoDB and logs are flushed.
+- **Accepted:** the script uses the User model directly (no service yet). When P2-T05 adds `user.service.js` for creating staff, the seed can call it.
 
 ## Open (the learner decides during `/plan-task`)
 - The exact reset-password flow.
