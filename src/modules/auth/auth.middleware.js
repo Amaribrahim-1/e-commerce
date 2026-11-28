@@ -1,5 +1,5 @@
-// Authentication: "who is sending this request?". Role checks ("may this user
-// do this?") are authorization and come in P2-T04 as a separate middleware.
+// Authentication ("who is sending this request?") and authorization ("may this
+// user do this?"), as two separate middlewares used in that order.
 //
 // Lives in the auth module, not in common/middlewares, because it depends on
 // the User model and on how tokens are signed (docs/02-decisions.md).
@@ -7,6 +7,7 @@ import jwt from 'jsonwebtoken';
 import { AppError } from '../../common/errors/AppError.js';
 import { config } from '../../config/index.js';
 import { User } from '../users/user.model.js';
+import { ROLES } from '../../common/constants/roles.js';
 
 const BEARER_PREFIX = 'Bearer ';
 
@@ -78,4 +79,41 @@ export const authenticate = async (req, res, next) => {
   // token), never from the body, params or query.
   req.currentUser = user;
   next();
+};
+
+const VALID_ROLES = Object.values(ROLES);
+
+// Authorization: "may this user do this?". Usage on a route:
+//   router.get('/x', authenticate, authorize(ROLES.ADMIN), handler)
+// It must run after authenticate and reads the role from req.currentUser,
+// which comes from the database, not from the token (the token has no role).
+//
+// The outer function runs once, when the routes are defined (at startup), so
+// a wrong call such as authorize() or authorize(ROLES.ADMNI) crashes the app
+// on start instead of silently locking the route (fail fast).
+//
+// Programmer mistakes throw a plain Error, not AppError: sendError treats it
+// as a bug, logs it, and the client gets a generic 500 without the details.
+export const authorize = (...allowedRoles) => {
+  if (allowedRoles.length === 0) {
+    throw new Error('authorize() needs at least one role');
+  }
+  for (const role of allowedRoles) {
+    if (!VALID_ROLES.includes(role)) {
+      throw new Error(`authorize(): unknown role "${role}"`);
+    }
+  }
+
+  return (req, res, next) => {
+    if (!req.currentUser) {
+      throw new Error('authorize() must run after authenticate');
+    }
+    if (!allowedRoles.includes(req.currentUser.role)) {
+      throw new AppError(
+        'You do not have permission to perform this action.',
+        403,
+      );
+    }
+    next();
+  };
 };
