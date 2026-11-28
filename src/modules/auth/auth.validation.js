@@ -24,7 +24,9 @@ const requiredString = (label) =>
         : `${label} must be a string`,
   });
 
-const nameSchema = requiredString('Name')
+// The field schemas are exported for scripts/seed-admin.js, so the first admin
+// follows the same rules as a registered user.
+export const nameSchema = requiredString('Name')
   .trim()
   .min(NAME_MIN, { error: `Name must be at least ${NAME_MIN} characters long` })
   .max(NAME_MAX, { error: `Name must be at most ${NAME_MAX} characters long` });
@@ -32,19 +34,21 @@ const nameSchema = requiredString('Name')
 // Normalize first (trim, lowercase), then check the format. z.email() checks
 // its format before any method chained after it, so the cleaned string is
 // piped into it instead.
-const emailSchema = requiredString('Email')
+export const emailSchema = requiredString('Email')
   .trim()
   .toLowerCase()
   .max(EMAIL_MAX, { error: 'Email is too long' })
   .pipe(z.email({ error: 'Invalid email address' }));
 
-const phoneSchema = requiredString('Phone').trim().regex(EGYPT_PHONE_REGEX, {
-  error: 'Phone must be an Egyptian mobile number like 01012345678',
-});
+export const phoneSchema = requiredString('Phone')
+  .trim()
+  .regex(EGYPT_PHONE_REGEX, {
+    error: 'Phone must be an Egyptian mobile number like 01012345678',
+  });
 
 // Not trimmed: spaces are valid password characters, and changing what the
 // user typed would make the same password fail at login.
-const passwordSchema = requiredString('Password')
+export const passwordSchema = requiredString('Password')
   .min(PASSWORD_MIN, {
     error: `Password must be at least ${PASSWORD_MIN} characters long`,
   })

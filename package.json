@@ -15,6 +15,7 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env src/server.js",
     "dev": "nodemon --exec \"node --env-file-if-exists=.env\" --watch src --watch .env src/server.js",
+    "seed:admin": "node --env-file-if-exists=.env scripts/seed-admin.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier . --write",

@@ -110,3 +110,15 @@ export const config = Object.freeze({
     algorithm: 'HS256',
   }),
 });
+
+// First-admin credentials, used only by scripts/seed-admin.js. Kept out of the
+// schema above on purpose: the running server never needs the admin password,
+// so these keys are optional for it and can be left out of the server's env
+// (least privilege). Read on demand and returned raw; the seed script checks
+// them with the same Zod rules as register and names the missing keys.
+export const getSeedAdminConfig = () => ({
+  name: process.env.SEED_ADMIN_NAME,
+  email: process.env.SEED_ADMIN_EMAIL,
+  phone: process.env.SEED_ADMIN_PHONE,
+  password: process.env.SEED_ADMIN_PASSWORD,
+});
