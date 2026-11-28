@@ -92,3 +92,39 @@ The learner wrote the first version of login and of the middleware. After two re
 - P2-T04: `authorize` runs after `authenticate` and reads the role from `req.currentUser`; the first admin is created by a seed that uses `hashPassword`.
 - P2-T06: the password change must set `passwordChangedAt` and return a new token (it passes thanks to `<`); create `user.service.js` then; move the email/password Zod schemas to `users/user.validation.js`.
 - Every later protected route: the user id comes from `req.currentUser`, never from body, params, or query.
+
+## 2026-11-28 - P2-T04 Role authorization and first-admin seed
+
+The learner wrote two versions of `authorize`; the mentor wrote the final version and the whole seed at the learner's request, because the learner had no background in standalone scripts. This entry explains the full reasoning so the task can be redone alone. Decisions: `docs/02-decisions.md`, "Authorization and first-admin seed (P2-T04)".
+
+**Authentication vs authorization**
+- `authenticate` answers "who are you?" (token -> user -> `req.currentUser`, failures `401`). `authorize` answers "may you do this?" (role check, failure `403`). Always in that order on the route: `authenticate, authorize(ROLES.ADMIN), handler`. This is **middleware composition**: small middlewares, each with one job, chained per route.
+
+**`authorize`, and what the two earlier versions got wrong**
+- **Middleware factory (higher-order function).** `authorize(...roles)` is not the middleware; it **returns** the middleware `(req, res, next)`. The outer function runs once when the route is defined; the inner one runs on every request. Rest parameters (`...roles`) make the call read like `authorize(ROLES.ADMIN, ROLES.CATALOG_MANAGER)`.
+- **`ROLES` is an object, not an array.** Version 2 called `ROLES.includes` (not a function -> every request `500`). Version 3 used `Object.keys(ROLES)`, which gives the keys (`'ADMIN'`), not the stored values (`'admin'`), so every valid role was rejected. The values are `Object.values(ROLES)`. Lesson: run the code once before sending it; both bugs show on the first request.
+- **Fail fast: check at the right moment.** Checks that depend only on the arguments (empty list, unknown role) belong in the outer function, so a typo crashes the app at startup instead of silently refusing everyone on that route. Checks that depend on the request (is there a user, is the role allowed) belong in the inner function.
+- **Operational error vs programmer error.** `AppError` is `isOperational`, so `sendError` sends its message to the client. "Forgot `authenticate`" or "unknown role" is a bug, not a client mistake: it must not be `400` (the client did nothing wrong) and must not leak its message. A plain `Error` is logged and answered with a generic `500`. Only the `403` is an `AppError`.
+
+**The seed script, step by step (`npm run seed:admin`)**
+1. Why a script at all: register always creates a customer, so no API can create the first admin. Inserting it by hand in Compass/mongosh skips Mongoose (no `enum`, no `lowercase`, no timestamps), needs a bcrypt hash made by hand, is not repeatable on a new database, and production usually has no direct database access.
+2. The npm script loads `.env` with `--env-file-if-exists` like `start`, because the script does not go through `server.js`.
+3. Read the values through `getSeedAdminConfig()` (config is still the only place that reads `process.env`). They are not in the main config schema: the server does not need the admin password, so it can be left out of the server's env (**least privilege**).
+4. Validate them with the register field schemas (one set of rules, no drift), **before** connecting to the database (fail fast). Messages name the key (`SEED_ADMIN_PASSWORD: ...`), never the value.
+5. Connect, then `await User.init()` so the unique email index exists before writing (Mongoose builds indexes in the background).
+6. If **any** admin exists -> "Nothing to do", exit `0`. This is **idempotency**: running it twice gives the same state as running it once, so it is safe by hand or in a deploy step.
+7. If the email belongs to an existing user -> fail. Never promote: that user owns the password.
+8. Hash with `hashPassword` (same cost as every other hash), create with `role: ROLES.ADMIN` written explicitly.
+9. A duplicate key at insert means another run won the race (**check-then-act**): the `exists` checks are for clear messages only; the unique index is the real guard (same lesson as P2-T02).
+10. Exit code `0` for success or already there, `1` for any failure, so a script or CI step can tell. `process.exitCode` instead of `process.exit()` so `finally` still disconnects. `new Error(msg, { cause: err })` keeps the original error inside the new one (ESLint `preserve-caught-error`).
+
+**Verification**
+- ESLint and Prettier clean (mentor). The learner confirmed in the terminal and Postman: first seed run creates the admin, second run says it already exists with no duplicate; on a temporary admin-only route, no token -> `401`, customer token -> `403`, admin token -> `200`; the temporary route was removed.
+
+**Concepts learned**
+- Authentication vs authorization; middleware composition and middleware factories (closures, rest parameters); fail fast; operational vs programmer errors; `Object.keys` vs `Object.values`; least privilege for secrets; idempotent scripts and exit codes; check-then-act races and the unique index as the guard; `Model.init()` and background index builds; `Error` `cause`.
+
+**Impact on other tasks**
+- P2-T05: every admin route uses `authenticate, authorize(ROLES.ADMIN)`; enforce "at least one active admin" when changing roles or deactivating (it also keeps the seed's "any admin exists" rule safe); `user.service.js` for staff creation can later be reused by the seed.
+- P2-T06: when the field schemas move to `users/user.validation.js`, update the import in `scripts/seed-admin.js`.
+- Later phases: catalog routes use `authorize(ROLES.ADMIN, ROLES.CATALOG_MANAGER)`, order operations `authorize(ROLES.ADMIN, ROLES.ORDER_OPERATOR)`; ownership checks (`404` for someone else's resource) are separate from role checks.
