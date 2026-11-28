@@ -1,3 +1,4 @@
+import jwt from 'jsonwebtoken';
 import { AppError } from './AppError.js';
 import { sendError } from '../http/sendError.js';
 
@@ -24,6 +25,12 @@ const handleMalformedJson = () =>
 const handleBodyTooLarge = () =>
   new AppError('Request body is too large.', 413);
 
+const handleTokenExpiredError = () =>
+  new AppError('Your token has expired. Please log in again.', 401);
+
+const handleJWTError = () =>
+  new AppError('Invalid token. Please log in again.', 401);
+
 // Turns known library errors into operational ones. Anything unknown is
 // returned untouched and ends up as a generic 500 in sendError.
 const translateError = (err) => {
@@ -34,6 +41,13 @@ const translateError = (err) => {
   if (err.type === 'entity.parse.failed') return handleMalformedJson();
   // express.json() raises this when the body is bigger than the configured limit.
   if (err.type === 'entity.too.large') return handleBodyTooLarge();
+  // jwt.verify errors. TokenExpiredError and NotBeforeError both extend
+  // JsonWebTokenError, so the expired case is checked first (it has its own
+  // message: the client only needs to log in again), and one instanceof check
+  // then covers every other token problem: bad signature, malformed token,
+  // wrong algorithm, "nbf" in the future.
+  if (err instanceof jwt.TokenExpiredError) return handleTokenExpiredError();
+  if (err instanceof jwt.JsonWebTokenError) return handleJWTError();
   return err;
 };
 
