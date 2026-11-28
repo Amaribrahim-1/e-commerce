@@ -1,4 +1,4 @@
-import { register } from './auth.service.js';
+import { login, register } from './auth.service.js';
 import { sendSuccess } from '../../common/http/sendSuccess.js';
 
 // HTTP in, HTTP out. Reads the validated body, calls the service, and chooses
@@ -11,4 +11,12 @@ export const registerController = async (req, res) => {
   // The token goes in the body; the client sends it back in the
   // "Authorization: Bearer <token>" header (see docs/02-decisions.md, P2-T02).
   sendSuccess(res, 201, { user, token });
+};
+
+// 200, not 201: login creates no resource, it returns a token for an existing
+// account. Failures (401, 403) are thrown by the service as AppError and sent
+// by the global error handler.
+export const loginController = async (req, res) => {
+  const { user, token } = await login(req.validated.body);
+  sendSuccess(res, 200, { user, token });
 };

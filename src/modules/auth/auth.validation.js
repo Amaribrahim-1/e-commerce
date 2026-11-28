@@ -69,3 +69,20 @@ export const registerSchema = z
     error: 'Passwords do not match',
     path: ['passwordConfirmation'],
   });
+
+// Login checks only the shape of the input, not the password policy. The policy
+// applies when a password is created or changed; if it gets stricter later,
+// users with an older, shorter password must still be able to log in, and a
+// wrong password must give 401, not a 400 that describes the policy.
+// The email goes through the same normalization as on register (trim and
+// lowercase), so "A@x.com " finds the account saved as "a@x.com".
+// No maximum on the password: bcrypt reads only the first 72 bytes, so a long
+// value does not cost more to check, and express.json() limits the body size.
+export const loginSchema = z.object({
+  email: emailSchema,
+  // An empty string is a missing password: a 400 with a clear message instead
+  // of a bcrypt compare that can only fail.
+  password: requiredString('Password').min(1, {
+    error: 'Password cannot be empty',
+  }),
+});
