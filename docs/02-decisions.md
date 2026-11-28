@@ -227,6 +227,25 @@ Chosen by the mentor at the learner's request; the learner may revisit any of th
 - **Field rules:** name 2-50 characters (trimmed), limits in `users/user.constants.js` and enforced by both Zod and the User schema (`minlength`/`maxlength`, last line of defence like the phone `match`); email trimmed and lowercased, then checked with `z.email()` through `.pipe()`, at most 254 characters; phone trimmed, then `EGYPT_PHONE_REGEX`.
 - **Later:** the field schemas (email, password, ...) move to `users/user.validation.js` when P2-T06 needs them, so `users` never imports from `auth`. The same question applies to `signAccessToken` in P2-T06.
 
+### Login (P2-T03)
+Chosen by the mentor at the learner's request; the learner may revisit any of them. Sources: node.bcrypt.js README (Context7, `/kelektiv/node.bcrypt.js`); RFC 9110 sections 15.5.2 (401) and 15.5.4 (403), from memory, not re-checked.
+
+- **Same failure for unknown email and wrong password:** `401` with one shared message constant, and about the same response time. When the email is unknown, a dummy bcrypt compare still runs (`simulatePasswordCheck` in `users/password.service.js`). The dummy hash is made with `hashPassword` once, on first use, so its cost always equals `BCRYPT_SALT_ROUNDS`. A hand-written hash was rejected because its cost is fixed in the string (it was `10` while the config uses `12`, about 4x faster, so the leak stayed).
+- **Deactivated account at login: `403`, message "Your account has been deactivated".** Checked **after** the password: only someone who knows the correct password learns that the account exists and is disabled, so this does not enable enumeration, and the real owner gets a clear reason. `403` because the credentials are valid and the server refuses this account (401 means "not authenticated"). This widens `403` in `docs/tasks/00-index.md` ("wrong role") to "authenticated but refused".
+- **Deactivated account in the auth middleware: `401`** (as the task says), like a deleted user or a token issued before a password change: the token no longer stands for a valid session, so the client must drop it. If the user logs in again, login gives the `403` above.
+- **Login validation:** shape only. Email: same normalization as register. Password: a non-empty string, no length policy (the policy applies to new passwords only, so a stricter policy later does not lock out existing users) and no maximum (bcrypt reads 72 bytes, `express.json()` limits the body).
+
+### Authentication middleware (P2-T03)
+Sources: jsonwebtoken 9.0.3 README and autodocs (Context7, `/auth0/node-jsonwebtoken`: `verify` options, default algorithm lists, error classes, verification order).
+
+- **`authenticate` in `auth/auth.middleware.js`** (pairs with `authorize` in P2-T04). The current user is put on **`req.currentUser`**: it describes the request, so it lives on `req`, not `res`; `res.locals` is meant for data passed to views.
+- **Header:** only `Authorization: Bearer <token>` (case-sensitive prefix). Anything else is `401`; an empty token is rejected by `jwt.verify` itself.
+- **`jwt.verify` with `algorithms: [config.jwt.algorithm]`**: an allow-list. Without it, a string secret allows HS256, HS384 and HS512, chosen by the token header, which the client writes. Called synchronously (no callback, no `promisify`): HS256 is CPU-only work, and the callback form only helps when the key is fetched asynchronously.
+- **JWT errors are translated in the global error handler**, next to the Mongo and body-parser errors: `TokenExpiredError` -> `401` "token has expired" (checked first), then `instanceof JsonWebTokenError` -> `401` "invalid token". The second check also covers `NotBeforeError` and any future subclass, because they all extend `JsonWebTokenError`.
+- **User loaded on every request** (`findById(sub)`, hash not selected): deleted or deactivated -> `401`; token `iat` before `passwordChangedAt` -> `401`. Comparison in whole seconds (`Math.floor(getTime() / 1000)`) with `<`, so a token made in the same second as a password change is accepted (P2-T06 returns one); the sub-second window for an older token is accepted.
+- **The password-change check is a private function of the middleware**, not in `password.service.js` (that file is only about bcrypt) and not a User method (it depends on JWT `iat` being in seconds, which the model should not know).
+- **`GET /users/me` has no service**: the middleware already loaded and checked the user, and there is no rule left to apply. `user.service.js` is created when P2-T06 needs it. The response is `{ user }`, the same shape as register and login.
+
 ## Open (the learner decides during `/plan-task`)
 - The exact reset-password flow.
 - Transactions versus compensating steps for order creation.
