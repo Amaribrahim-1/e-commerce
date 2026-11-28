@@ -59,3 +59,36 @@ The learner did not know how to start this task, so most of the code was written
 - P2-T03: login reuses `signAccessToken`; the auth middleware reads `Authorization: Bearer`, calls `jwt.verify` with `algorithms: [config.jwt.algorithm]`, loads the user by `sub`, checks `isActive` and `passwordChangedAt` vs `iat` (seconds vs milliseconds).
 - P2-T06: the email/password field schemas move to `users/user.validation.js` (so `users` never imports from `auth`); decide where `signAccessToken` lives if a password change returns a new token.
 - P2-T08: rate-limit `/auth/register` together with login and the reset routes.
+
+## 2026-11-28 - P2-T03 Login and authentication middleware
+
+The learner wrote the first version of login and of the middleware. After two review rounds, the mentor wrote the remaining fixes and all comments at the learner's request. The points below are what to be able to explain alone.
+
+**The two requests**
+- `POST /api/v1/auth/login`: Zod (`loginSchema`) -> `loginController` -> `login()` in `auth.service.js`: find by email with `+passwordHash`, compare with bcrypt, check `isActive`, sign a token, `200` with `{ user, token }`.
+- `GET /api/v1/users/me`: `authenticate` (header -> `jwt.verify` -> `findById(sub)` -> active? -> token newer than the last password change?) puts the user on `req.currentUser`, then `getMe` returns `{ user }`. Every failure in the middleware is `401`, sent by the global error handler.
+
+**Most important points**
+- **User enumeration, by message and by time.** Unknown email and wrong password give the same `401` and the same message (one constant). The response time must match too: the unknown-email path still runs one bcrypt compare against a dummy hash. A hand-written hash had cost `10` while the config uses `12` (about 4x faster), so the leak stayed; the dummy hash is now made by `hashPassword`, once, on first use.
+- **Promise memoization.** `getDummyHash` stores the promise right away (no `await` before storing), so two first requests share one hashing job. `??=` assigns only when the variable is empty. The `.catch` clears the cache and re-throws: a catch that does not re-throw turns a failure into a wrong value (`undefined`) that breaks later, far away.
+- **Inactive account at login: `403`, checked after the password.** Only someone with the right password learns the account is disabled, so this message reveals nothing. In the middleware the same case is `401`: the token is no longer a valid session.
+- **Validate the shape at login, not the policy.** Reusing the register `passwordSchema` would lock out users if the policy got stricter and would answer a wrong password with a `400` describing the policy.
+- **`jwt.verify` throws, it never returns a falsy value.** An `if (!payload)` after it is dead code. Express 5 sends the rejected promise of an async middleware to the error handler, so no try/catch is needed.
+- **`algorithms` allow-list** in `verify`: the token header says which algorithm to use, and the client writes the header. The same constant is used by `sign` and `verify`.
+- **Error class hierarchy:** `TokenExpiredError` and `NotBeforeError` extend `JsonWebTokenError`. Check the specific one first, then one `instanceof` for the base class covers the rest (a check by exact `err.name` missed `NotBeforeError` and gave `500`).
+- **Why `passwordChangedAt` matters:** a JWT cannot be revoked one by one; the server keeps no list. Changing the password is how a user signs out every device, so tokens issued before it are refused. Units: `iat` is whole seconds, `getTime()` is milliseconds; `Math.floor(ms / 1000)` and `<` (not `<=`) so a token from the same second as the change still works. `parseInt` is for parsing strings, not for rounding numbers.
+- **`promisify`** (`node:util`) wraps a callback-style function `(err, result)` into one that returns a promise. Not needed for `jwt.verify`: without a callback it is synchronous, and HS256 is CPU-only work.
+- **Layers are used when there is a job.** `/users/me` has no service because there is no rule left after the middleware. `password.service.js` lives in `users` because `users` will hash passwords too (P2-T05 staff, P2-T06 password change) and dependencies go one way (`auth` -> `users`).
+- **Paths:** `routes.js` sets the module prefix (`/users`); the module router writes only the rest (`/me`). Writing `/users` in both gave `/api/v1/users/users` and a 404. REST paths are nouns (`/me`), not verbs (`/getMe`).
+
+**Verification**
+- Mentor smoke test in-process (User queries stubbed, no real DB), 22 checks passed: login `200` + token without hash; wrong password and unknown email same `401` body and close timing (217 ms vs 215 ms); empty password `400`; inactive login `403`; `/users/me` without header, with `Basic`, with `Bearer ` only, tampered, HS512-signed, expired, and `nbf` in the future -> `401` (expired has its own message); valid -> `200` without hash; inactive, deleted, and token older than `passwordChangedAt` -> `401`; token from the same second as the change -> `200`. ESLint and Prettier clean.
+- The learner confirmed the login timing difference in Postman. **Still for the learner in Postman** (real database): save the token with a test script; `/users/me` with and without the token; set `isActive: false` and then `passwordChangedAt` (as a Date) in the database and check the old token gets `401`.
+
+**Concepts learned**
+- User enumeration (messages and timing), bcrypt cost factor, promise memoization, `??=`, re-throwing in `.catch`; 401 vs 403; JWT verification errors and their class hierarchy, `nbf`, algorithm allow-lists; stateless tokens and revocation through `passwordChangedAt`; seconds vs milliseconds; `promisify` and callback vs sync APIs; Express 5 async error forwarding; router prefixes.
+
+**Impact on other tasks**
+- P2-T04: `authorize` runs after `authenticate` and reads the role from `req.currentUser`; the first admin is created by a seed that uses `hashPassword`.
+- P2-T06: the password change must set `passwordChangedAt` and return a new token (it passes thanks to `<`); create `user.service.js` then; move the email/password Zod schemas to `users/user.validation.js`.
+- Every later protected route: the user id comes from `req.currentUser`, never from body, params, or query.
